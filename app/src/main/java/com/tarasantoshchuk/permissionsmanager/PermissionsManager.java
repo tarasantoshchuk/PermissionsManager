@@ -3,6 +3,7 @@ package com.tarasantoshchuk.permissionsmanager;
 import android.annotation.TargetApi;
 import android.app.Activity;
 import android.content.Context;
+import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.os.Build;
 import android.support.annotation.IntDef;
@@ -11,10 +12,55 @@ import android.support.v4.app.ActivityCompat;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
+import java.util.Collection;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Set;
 
 public class PermissionsManager {
-    static final String SHARED_PREFS_KEY = "com.tarasnantoshchuk.permissionsmanager.PermissionsManager";
+    static final String SHARED_PREFS_FILE = "com.tarasnantoshchuk.permissionsmanager.PermissionsManager";
+    private static final String PREFS_KEY_REQUEST_JSONS = "PREFS_KEY_REQUEST_JSONS";
+
+    public Request getRequest(int requestCode) {
+        if (!mPendingRequests.containsKey(requestCode)) {
+            throw new RuntimeException("unexpected");
+        }
+
+        return mPendingRequests.get(requestCode);
+    }
+
+    @TargetApi(Build.VERSION_CODES.HONEYCOMB)
+    public void saveState() {
+        mContext
+                .getSharedPreferences(SHARED_PREFS_FILE, Context.MODE_PRIVATE)
+                .edit()
+                .putStringSet(PREFS_KEY_REQUEST_JSONS, getRequestsJsons())
+                .commit();
+    }
+
+    private Set<String> getRequestsJsons() {
+        Set<String> result = new HashSet<>();
+        for (Request request: mPendingRequests.values()) {
+            result.add(Request.toJson(request));
+        }
+        return result;
+    }
+
+    public void handleRequestResult(int requestCode, String[] permissions, int[] grantResults) {
+        Request request = mPendingRequests.get(requestCode);
+
+        if (request == null) {
+            throw new RuntimeException("unexpected");
+        }
+
+
+        //compute request result
+
+        mPendingRequests.remove(request.requestCode);
+        request.setResult(Request.RESULT_DENIED_FOREVER);
+        request.setState(Request.STATE_FINISHED);
+
+    }
 
     @Retention(RetentionPolicy.SOURCE)
     @IntDef({REQUEST_STATUS_DENIED_FOREVER, REQUEST_STATUS_GRANTED, REQUEST_STATUS_UNKNOWN, REQUEST_STATUS_UNKNOWN_SHOW_RATIONALE})
@@ -32,7 +78,7 @@ public class PermissionsManager {
     HashMap<Integer, Request> mPendingRequests = new HashMap<>();
 
     public static synchronized PermissionsManager init(Context context) {
-        if (sInstance != null) {
+        if (sInstance == null) {
             sInstance = new PermissionsManager(context);
         }
 
@@ -44,7 +90,23 @@ public class PermissionsManager {
     }
 
     private PermissionsManager(Context context) {
-        context.getSharedPreferences(SHARED_PREFS_KEY, Context.MODE_PRIVATE);
+        mContext = context;
+
+        if (isMarshmallow()) {
+            retrieveRequests();
+        }
+    }
+
+    @TargetApi(Build.VERSION_CODES.HONEYCOMB)
+    private void retrieveRequests() {
+        Set<String> requestJsons = mContext
+                .getSharedPreferences(SHARED_PREFS_FILE, Context.MODE_PRIVATE)
+                .getStringSet(PREFS_KEY_REQUEST_JSONS, new HashSet<String>());
+
+        for (String requestJson : requestJsons) {
+            Request request = Request.fromJson(requestJson);
+            mPendingRequests.put(request.requestCode, request);
+        }
     }
 
     public Request createRequestEach(int requestCode, String... permissions) {
@@ -68,6 +130,7 @@ public class PermissionsManager {
     @NonNull
     private Request createAndCacheRequest(int requestCode, @Request.RequestMode int requestMode, String[] permissions) {
         Request newRequest = new Request(requestCode, requestMode, permissions);
+        newRequest.setState(Request.STATE_STARTED);
         mPendingRequests.put(requestCode, newRequest);
         return newRequest;
     }
@@ -88,12 +151,21 @@ public class PermissionsManager {
                 break;
             case REQUEST_STATUS_UNKNOWN:
                 request.setState(Request.STATE_BEFORE_REQUEST);
-
-                //todo: launch shadow activity
+                launchRequest(request);
                 break;
             default:
                 throw new RuntimeException("unexpected");
         }
+    }
+
+    void proceedRequest(Request request) {
+        request.setState(Request.STATE_BEFORE_REQUEST);
+        launchRequest(request);
+    }
+
+    private void launchRequest(Request request) {
+        Intent intent = ShadowActivity.getStartIntent(mContext, request.requestCode);
+        mContext.startActivity(intent);
     }
 
     @RequestStatus
@@ -166,12 +238,6 @@ public class PermissionsManager {
                 return REQUEST_STATUS_UNKNOWN;
             }
         }
-    }
-
-    void proceedRequest(Request request) {
-        request.setState(Request.STATE_BEFORE_REQUEST);
-        // start shadow activity
-
     }
 
     private boolean isMarshmallow() {
