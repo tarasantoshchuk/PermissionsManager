@@ -2,6 +2,7 @@ package com.tarasantoshchuk.permissionsmanager;
 
 import android.app.Activity;
 import android.support.annotation.IntDef;
+import android.util.Log;
 
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -15,6 +16,8 @@ import java.util.Collections;
 import java.util.List;
 
 public final class Request implements Serializable {
+    private static final String TAG = Request.class.getSimpleName();
+
     final int requestCode;
 
     @RequestMode
@@ -53,9 +56,10 @@ public final class Request implements Serializable {
     public static final int STATE_REQUESTED = 4;
     public static final int STATE_FINISHED = 5;
 
-    Request(int requestCode, @RequestMode int requestMode, String[] permissions) {
+    private Request(int requestCode, @RequestMode int requestMode, @State int state, String[] permissions) {
         this.requestCode = requestCode;
         this.requestMode = requestMode;
+        this.state = state;
         ArrayList<String> array = new ArrayList<>();
 
         for (int i = 0; i < permissions.length; i++) {
@@ -65,12 +69,12 @@ public final class Request implements Serializable {
         requestedPermissions = Collections.unmodifiableList(array);
     }
 
-    public boolean isRunning() {
-        return state >= STATE_STARTED;
+    Request(int requestCode, @RequestMode int requestMode, String[] permissions) {
+        this(requestCode, requestMode, STATE_INIT, permissions);
     }
 
-    public boolean isFinished() {
-        return state == STATE_FINISHED;
+    public boolean isRunning() {
+        return state >= STATE_STARTED;
     }
 
     public void setListener(Listener listener) {
@@ -83,11 +87,16 @@ public final class Request implements Serializable {
         }
     }
 
+    public void reset() {
+        setState(STATE_INIT);
+    }
+
     public void run(Activity activity) {
         PermissionsManager.getInstance().runRequest(this, activity);
     }
 
     void setState(@State int state) {
+        Log.v(TAG, "setState, state " + state);
         this.state = state;
 
         switch(state) {
@@ -128,7 +137,9 @@ public final class Request implements Serializable {
         try {
             json.put("requestCode", request.requestCode);
             json.put("requestMode", request.requestMode);
+            json.put("state", request.state);
 
+            json.put("permissions", new JSONArray());
             for (String permission: request.requestedPermissions) {
                 json.accumulate("permissions", permission);
             }
@@ -140,11 +151,12 @@ public final class Request implements Serializable {
 
     @SuppressWarnings("WrongConstant")
     public static Request fromJson(String jsonStr) {
-        JSONObject json = null;
+        JSONObject json;
         try {
             json = new JSONObject(jsonStr);
             int requestCode = json.getInt("requestCode");
             int requestMode = json.getInt("requestMode");
+            int requestState = json.getInt("state");
             JSONArray permissionsJson = json.getJSONArray("permissions");
             String[] permissions = new String[permissionsJson.length()];
 
@@ -152,9 +164,21 @@ public final class Request implements Serializable {
                 permissions[i] = permissionsJson.get(i).toString();
             }
 
-            return new Request(requestCode, requestMode, permissions);
+            return new Request(requestCode, requestMode, requestState, permissions);
         } catch (JSONException e) {
             return null;
         }
+    }
+
+    @Override
+    public String toString() {
+        return "Request{" +
+                "result=" + result +
+                ", mListener=" + mListener +
+                ", state=" + state +
+                ", requestedPermissions=" + requestedPermissions +
+                ", requestMode=" + requestMode +
+                ", requestCode=" + requestCode +
+                '}';
     }
 }

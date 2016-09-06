@@ -9,19 +9,21 @@ import android.os.Build;
 import android.support.annotation.IntDef;
 import android.support.annotation.NonNull;
 import android.support.v4.app.ActivityCompat;
+import android.util.Log;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
-import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Set;
 
 public class PermissionsManager {
+    private static final String TAG = PermissionsManager.class.getSimpleName();
+
     static final String SHARED_PREFS_FILE = "com.tarasnantoshchuk.permissionsmanager.PermissionsManager";
     private static final String PREFS_KEY_REQUEST_JSONS = "PREFS_KEY_REQUEST_JSONS";
 
-    public Request getRequest(int requestCode) {
+    Request getRequest(int requestCode) {
         if (!mPendingRequests.containsKey(requestCode)) {
             throw new RuntimeException("unexpected");
         }
@@ -43,23 +45,44 @@ public class PermissionsManager {
         for (Request request: mPendingRequests.values()) {
             result.add(Request.toJson(request));
         }
+
+        Log.v(TAG, "saveState, result " + result);
         return result;
     }
 
-    public void handleRequestResult(int requestCode, String[] permissions, int[] grantResults) {
+    public void handleRequestResult(int requestCode, String[] permissions, int[] grantResults, boolean[] shouldShowRationale) {
         Request request = mPendingRequests.get(requestCode);
 
         if (request == null) {
             throw new RuntimeException("unexpected");
         }
 
+        @Request.Result int result;
 
-        //compute request result
+        switch (request.requestMode) {
+            case Request.REQUEST_MODE_ALL:
+                result = Request.RESULT_GRANTED;
+                for (int i = 0; i < grantResults.length; i++) {
+                    if (grantResults[i] == PackageManager.PERMISSION_DENIED) {
+                        result = Request.RESULT_DENIED;
+                        if (!shouldShowRationale[i]) {
+                            result = Request.RESULT_DENIED_FOREVER;
+                            break;
+                        }
+                    }
+                }
+                break;
+            case Request.REQUEST_MODE_EACH:
+                throw new RuntimeException("not supported yet");
+            default:
+                throw new RuntimeException("unexpected");
+        }
 
-        mPendingRequests.remove(request.requestCode);
-        request.setResult(Request.RESULT_DENIED_FOREVER);
+        request.setResult(result);
         request.setState(Request.STATE_FINISHED);
+        request.reset();
 
+        saveState();
     }
 
     @Retention(RetentionPolicy.SOURCE)
@@ -90,7 +113,7 @@ public class PermissionsManager {
     }
 
     private PermissionsManager(Context context) {
-        mContext = context;
+        mContext = context.getApplicationContext();
 
         if (isMarshmallow()) {
             retrieveRequests();
@@ -103,9 +126,13 @@ public class PermissionsManager {
                 .getSharedPreferences(SHARED_PREFS_FILE, Context.MODE_PRIVATE)
                 .getStringSet(PREFS_KEY_REQUEST_JSONS, new HashSet<String>());
 
+        Log.v(TAG, "retrieveRequests, requestJsons " + requestJsons);
+
         for (String requestJson : requestJsons) {
             Request request = Request.fromJson(requestJson);
-            mPendingRequests.put(request.requestCode, request);
+            if (request != null) {
+                mPendingRequests.put(request.requestCode, request);
+            }
         }
     }
 
@@ -130,21 +157,30 @@ public class PermissionsManager {
     @NonNull
     private Request createAndCacheRequest(int requestCode, @Request.RequestMode int requestMode, String[] permissions) {
         Request newRequest = new Request(requestCode, requestMode, permissions);
-        newRequest.setState(Request.STATE_STARTED);
+        newRequest.setState(Request.STATE_INIT);
         mPendingRequests.put(requestCode, newRequest);
         return newRequest;
     }
 
     void runRequest(Request request, Activity activity) {
+        Log.v(TAG, "runRequest, request " + request);
+        if (request.isRunning()) {
+            return;
+        }
+
         request.setState(Request.STATE_STARTED);
         @RequestStatus int requestStatus = getRequestStatus(request, activity);
 
         switch(requestStatus) {
             case REQUEST_STATUS_DENIED_FOREVER:
                 request.setResult(Request.RESULT_DENIED_FOREVER);
+                request.setState(Request.STATE_FINISHED);
+                request.reset();
                 break;
             case REQUEST_STATUS_GRANTED:
                 request.setResult(Request.RESULT_GRANTED);
+                request.setState(Request.STATE_FINISHED);
+                request.reset();
                 break;
             case REQUEST_STATUS_UNKNOWN_SHOW_RATIONALE:
                 request.setState(Request.STATE_RATIONALE);
@@ -165,6 +201,7 @@ public class PermissionsManager {
 
     private void launchRequest(Request request) {
         Intent intent = ShadowActivity.getStartIntent(mContext, request.requestCode);
+        intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         mContext.startActivity(intent);
     }
 
@@ -184,7 +221,7 @@ public class PermissionsManager {
         boolean hasDeniedForever = false;
 
         for (String permission: request.requestedPermissions) {
-            if (isDeniedForever(permission)) {
+            if (isDeniedForever(permission, activity)) {
                 hasDenied = true;
                 hasDeniedForever = true;
             } else if (!isGranted(permission)){
@@ -216,7 +253,7 @@ public class PermissionsManager {
         boolean allDeniedForever = true;
 
         for (String permission: request.requestedPermissions) {
-            if (!isDeniedForever(permission)) {
+            if (!isDeniedForever(permission, activity)) {
                 allDeniedForever = false;
             } else if (!isGranted(permission)){
                 allGranted = false;
@@ -253,12 +290,12 @@ public class PermissionsManager {
         return mContext.checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED;
     }
 
-    private boolean isDeniedForever(String permission) {
-        return isMarshmallow() && isDeniedForever_(permission);
+    private boolean isDeniedForever(String permission, Activity activity) {
+        return isMarshmallow() && isDeniedForever_(permission, activity);
     }
 
     @TargetApi(Build.VERSION_CODES.M)
-    private boolean isDeniedForever_(String permission) {
-        return mContext.getPackageManager().isPermissionRevokedByPolicy(permission, mContext.getPackageName());
+    private boolean isDeniedForever_(String permission, Activity activity) {
+        return activity.shouldShowRequestPermissionRationale(permission);
     }
 }

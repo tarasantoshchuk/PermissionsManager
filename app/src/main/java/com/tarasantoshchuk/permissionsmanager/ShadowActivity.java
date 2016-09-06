@@ -8,7 +8,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.support.annotation.NonNull;
 
-
+@TargetApi(Build.VERSION_CODES.M)
 public class ShadowActivity extends Activity {
     private static final String KEY_REQUEST_CODE = "KEY_REQUEST_CODE";
 
@@ -47,8 +47,14 @@ public class ShadowActivity extends Activity {
 
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
-        PermissionsManager.getInstance().handleRequestResult(requestCode, permissions, grantResults);
+        boolean[] shouldShowRationale = new boolean[permissions.length];
 
+        for (int i = 0; i < permissions.length; i++) {
+            shouldShowRationale[i] = shouldShowRequestPermissionRationale(permissions[i]);
+        }
+
+        PermissionsManager.getInstance().handleRequestResult(requestCode, permissions, grantResults, shouldShowRationale);
+        finish();
     }
 
     public static Intent getStartIntent(Context mContext, int requestCode) {
