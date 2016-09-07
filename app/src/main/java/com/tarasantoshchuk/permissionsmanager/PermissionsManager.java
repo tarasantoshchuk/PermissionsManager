@@ -141,13 +141,12 @@ public class PermissionsManager {
 //      return createRequest(requestCode, Request.REQUEST_MODE_EACH, permissions);
     }
 
-    public Request createRequestAll(int requestCode, String... permissions) {
-        return createRequest(requestCode, Request.REQUEST_MODE_ALL, permissions);
+    public Request createRequestAll(int requestCode, boolean isRestored, String... permissions) {
+        return createRequest(requestCode, isRestored, Request.REQUEST_MODE_ALL, permissions);
     }
 
-    private Request createRequest(int requestCode, @Request.RequestMode int requestMode, String... permissions) {
-
-        if (mPendingRequests.containsKey(requestCode)) {
+    private Request createRequest(int requestCode, boolean isRestored, @Request.RequestMode int requestMode, String... permissions) {
+        if (isRestored && mPendingRequests.containsKey(requestCode)) {
             return mPendingRequests.get(requestCode);
         } else {
             return createAndCacheRequest(requestCode, requestMode, permissions);
@@ -218,13 +217,9 @@ public class PermissionsManager {
     private int getRequestStatusForAll(Request request, Activity activity) {
         boolean hasDenied = false;
         boolean shouldShowRationale = false;
-        boolean hasDeniedForever = false;
 
         for (String permission: request.requestedPermissions) {
-            if (isDeniedForever(permission, activity)) {
-                hasDenied = true;
-                hasDeniedForever = true;
-            } else if (!isGranted(permission)){
+            if (!isGranted(permission)){
                 hasDenied = true;
             }
 
@@ -233,9 +228,7 @@ public class PermissionsManager {
             }
         }
 
-        if (hasDeniedForever) {
-            return REQUEST_STATUS_DENIED_FOREVER;
-        } else if (!hasDenied) {
+        if (!hasDenied) {
             return REQUEST_STATUS_GRANTED;
         } else {
             if (shouldShowRationale) {
@@ -250,12 +243,9 @@ public class PermissionsManager {
     private int getRequestStatusForEach(Request request, Activity activity) {
         boolean allGranted = true;
         boolean shouldShowRationale = false;
-        boolean allDeniedForever = true;
 
         for (String permission: request.requestedPermissions) {
-            if (!isDeniedForever(permission, activity)) {
-                allDeniedForever = false;
-            } else if (!isGranted(permission)){
+            if (!isGranted(permission)){
                 allGranted = false;
             }
 
@@ -264,9 +254,7 @@ public class PermissionsManager {
             }
         }
 
-        if (allDeniedForever) {
-            return REQUEST_STATUS_DENIED_FOREVER;
-        } else if (allGranted) {
+        if (allGranted) {
             return REQUEST_STATUS_GRANTED;
         } else {
             if (shouldShowRationale) {

@@ -14,6 +14,8 @@ import com.tarasantoshchuk.permissionsmanager.Request;
 
 public class ActivityWithTrigger extends Activity {
     private Request mPermissionRequest;
+    private boolean isRestored;
+    private AlertDialog mRationale;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -26,22 +28,31 @@ public class ActivityWithTrigger extends Activity {
                 mPermissionRequest.run(ActivityWithTrigger.this);
             }
         });
+
+        isRestored = savedInstanceState != null;
     }
 
     @Override
     protected void onStop() {
         super.onStop();
         mPermissionRequest.stop();
+
+        if (mRationale != null && mRationale.isShowing()) {
+            mRationale.dismiss();
+
+            //uncomment if you want rationale request to be restored
+            //mPermissionRequest.reset();
+        }
     }
 
     @Override
     protected void onStart() {
         super.onStart();
-        mPermissionRequest = PermissionsManager.init(this).createRequestAll(R.id.request_on_button_click, Manifest.permission.WRITE_EXTERNAL_STORAGE);
+        mPermissionRequest = PermissionsManager.init(this).createRequestAll(R.id.request_on_button_click, isRestored, Manifest.permission.WRITE_EXTERNAL_STORAGE);
         mPermissionRequest.setListener(new Request.Listener() {
             @Override
             public boolean onShowRationale() {
-                new AlertDialog.Builder(ActivityWithTrigger.this)
+                mRationale = new AlertDialog.Builder(ActivityWithTrigger.this)
                         .setTitle("Rationale title")
                         .setMessage("Rationale message")
                         .setPositiveButton("OK", new DialogInterface.OnClickListener() {

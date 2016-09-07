@@ -79,6 +79,9 @@ public final class Request implements Serializable {
 
     public void setListener(Listener listener) {
         mListener = listener;
+
+        //invoke current state callbacks, that might be missed by the listener
+        setState(state);
     }
 
     public void stop() {
